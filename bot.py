@@ -9,7 +9,7 @@ import numpy as np  # for safety, though not heavily used
 
 from solana.rpc.async_api import AsyncClient
 from anchorpy import Provider, Wallet
-from solana.keypair import Keypair
+from solders.keypair import Keypair
 from driftpy.drift_client import DriftClient
 from driftpy.constants import configs
 from driftpy.drift_user import DriftUser
