@@ -1,3 +1,5 @@
 [build]
-builder = "NIXPACKS"
-nixpacksPlan = "python"
+  nixpacksPlan = { providers = ["python"] }
+
+[deploy]
+  startCommand = "python bot.py"   # Explicit if auto-detect fails
