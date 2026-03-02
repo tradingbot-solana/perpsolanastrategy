@@ -1,0 +1,8 @@
+driftpy>=0.8.0
+pandas
+pandas_ta
+requests
+python-dotenv
+solana
+anchorpy
+asyncio
