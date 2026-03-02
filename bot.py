@@ -80,7 +80,7 @@ def calculate_indicators(df):
 async def main():
     print("Starting bot initialization...")
 
-    keypair = Keypair.from_secret_key(bytes(PRIVATE_KEY_JSON))
+    keypair = Keypair.from_bytes(bytes(PRIVATE_KEY_JSON))
     wallet = Wallet(keypair)
     connection = AsyncClient(RPC_URL)
     provider = Provider(connection, wallet)
