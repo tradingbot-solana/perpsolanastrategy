@@ -1,6 +1,6 @@
 [build]
   nixpacksPlan = {
-    providers = ["python"]
+    providers, = ["python"]
     python = { version = "3.11" }
   }
 
