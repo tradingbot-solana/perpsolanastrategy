@@ -5,7 +5,6 @@ import pandas as pd
 import requests
 from datetime import datetime
 from dotenv import load_dotenv
-import numpy as np
 
 from solana.rpc.async_api import AsyncClient
 from anchorpy import Provider, Wallet
@@ -17,15 +16,29 @@ from driftpy.types import PositionDirection
 load_dotenv()
 
 # ────────────────────────────────────────────────
-# Config from Railway environment variables
+# Environment variables from Railway
 # ────────────────────────────────────────────────
-PRIVATE_KEY_JSON = json.loads(os.getenv("PRIVATE_KEY_JSON"))
+PRIVATE_KEY_JSON_STR = os.getenv("PRIVATE_KEY_JSON")
+if PRIVATE_KEY_JSON_STR is None:
+    raise ValueError("PRIVATE_KEY_JSON is not set in Railway variables!")
+
+try:
+    PRIVATE_KEY_JSON = json.loads(PRIVATE_KEY_JSON_STR)
+except json.JSONDecodeError as e:
+    raise ValueError(f"PRIVATE_KEY_JSON is not valid JSON: {e}")
+
 RPC_URL = os.getenv("RPC_URL")
+if RPC_URL is None:
+    raise ValueError("RPC_URL is not set!")
+
 BIRDEYE_API_KEY = os.getenv("BIRDEYE_API_KEY")
-MARKET_INDEX = int(os.getenv("MARKET_INDEX", 0))          # SOL-PERP = 0
-RISK_PER_TRADE = float(os.getenv("RISK_PER_TRADE", 0.005))
-LEVERAGE = int(os.getenv("LEVERAGE", 8))
-CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", 60))
+if BIRDEYE_API_KEY is None:
+    raise ValueError("BIRDEYE_API_KEY is not set!")
+
+MARKET_INDEX = int(os.getenv("MARKET_INDEX", "0"))
+RISK_PER_TRADE = float(os.getenv("RISK_PER_TRADE", "0.005"))
+LEVERAGE = int(os.getenv("LEVERAGE", "8"))
+CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "60"))
 
 SOL_ADDRESS = "So11111111111111111111111111111111111111112"
 
@@ -52,11 +65,12 @@ async def get_candles(limit=200):
         df["timestamp"] = pd.to_datetime(df["unixTime"], unit="s")
         return df[["open", "high", "low", "close", "volume"]].astype(float)
     except Exception as e:
-        print(f"Failed to fetch candles: {e}")
+        print(f"Failed to fetch candles from Birdeye: {e}")
         return None
 
 def calculate_indicators(df):
     if df is None or len(df) < 50:
+        print("Not enough candle data for indicators")
         return None
 
     # EMA
@@ -80,22 +94,23 @@ def calculate_indicators(df):
     return df
 
 async def main():
-    print("Starting bot initialization...")
+    print("=== Bot starting ===")
 
-    # Load wallet
+    # 1. Load wallet
     try:
         keypair = Keypair.from_bytes(bytes(PRIVATE_KEY_JSON))
         wallet = Wallet(keypair)
-        print("Keypair loaded successfully | Public key:", str(keypair.pubkey()))
+        print(f"Keypair loaded | Public key: {keypair.pubkey()}")
     except Exception as e:
         print(f"Failed to load keypair: {e}")
         return
 
+    # 2. Connection & Provider
     connection = AsyncClient(RPC_URL)
     provider = Provider(connection, wallet)
 
+    # 3. Drift Client
     print("Creating DriftClient...")
-
     drift_client = DriftClient(
         connection=connection,
         wallet=wallet,
@@ -107,12 +122,17 @@ async def main():
         await drift_client.subscribe()
         print("DriftClient subscribed successfully")
     except Exception as e:
-        print(f"Subscribe failed: {e}")
+        print(f"Drift subscribe failed: {e}")
         return
 
+    # 4. Drift User & Collateral check
     drift_user = DriftUser(drift_client)
-    collateral = await drift_user.get_total_collateral()
-    print(f"🚀 Bot started | Collateral: {collateral:.2f} USDC")
+    try:
+        collateral = await drift_user.get_total_collateral()
+        print(f"Bot ready | Collateral: ${collateral:.2f}")
+    except Exception as e:
+        print(f"Failed to get collateral: {e}")
+        return
 
     in_position = False
     position_side = None
@@ -144,16 +164,16 @@ async def main():
                 prev["macd_hist"] > 0 >= latest["macd_hist"]
             )
 
-            user_positions = await drift_user.get_user_positions()
+            positions = await drift_user.get_user_positions()
             has_position = any(
                 p.market_index == MARKET_INDEX and abs(p.base_asset_amount) > 0
-                for p in user_positions
+                for p in positions
             )
 
             if not has_position:
                 collateral = await drift_user.get_total_collateral()
                 if collateral <= 0:
-                    print("No collateral available — skipping")
+                    print("No collateral — skipping this cycle")
                     await asyncio.sleep(CHECK_INTERVAL)
                     continue
 
@@ -162,26 +182,26 @@ async def main():
 
                 if long_signal:
                     await drift_client.open_position(PositionDirection.LONG(), size_base, MARKET_INDEX)
-                    print(f"✅ LONG opened @ ~${latest['close']:.2f} | Size ~${size_usd:.0f}")
+                    print(f"LONG opened @ ~${latest['close']:.2f} | Size ${size_usd:.0f}")
                     in_position = True
                     position_side = "LONG"
 
                 elif short_signal:
                     await drift_client.open_position(PositionDirection.SHORT(), size_base, MARKET_INDEX)
-                    print(f"✅ SHORT opened @ ~${latest['close']:.2f} | Size ~${size_usd:.0f}")
+                    print(f"SHORT opened @ ~${latest['close']:.2f} | Size ${size_usd:.0f}")
                     in_position = True
                     position_side = "SHORT"
 
             elif has_position and ((position_side == "LONG" and short_signal) or (position_side == "SHORT" and long_signal)):
                 await drift_client.close_position(MARKET_INDEX)
-                print(f"🔄 {position_side} CLOSED on opposite signal")
+                print(f"{position_side} closed on opposite signal")
                 in_position = False
                 position_side = None
 
             await asyncio.sleep(CHECK_INTERVAL)
 
         except Exception as e:
-            print(f"Loop error: {e}")
+            print(f"Main loop error: {e}")
             await asyncio.sleep(30)
 
 if __name__ == "__main__":
