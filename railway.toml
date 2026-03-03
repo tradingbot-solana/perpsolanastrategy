@@ -1,0 +1,8 @@
+[build]
+  nixpacksPlan = {
+    providers = ["python"],
+    python = { version = "3.11" }
+  }
+
+[deploy]
+  startCommand = "python fixed-bot.py"
